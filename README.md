@@ -66,17 +66,19 @@ In the top header, click between **Tanvi** and **Saie** with one click to switch
 6. **Team Activity Feed**:
    - An interactive chronological feed detailing all actions taken by Tanvi and Saie (notes created, tasks completed, comments posted, notes edited).
 
-7. **Zero-Setup Local Persistence & Cross-Tab Sync**:
-   - All state is preserved locally in `localStorage`.
-   - Built-in `BroadcastChannel` synchronization updates any other open browser tabs in real-time.
+7. **Real-Time Cloud Firestore Sync & Offline Persistence**:
+   - Integrated with **Google Cloud Firestore** using the modern Modular Web SDK for instant cross-device updates.
+   - Any note, comment, or checklist deliverable created by Tanvi or Saie updates live across the internet on both machines!
+   - Built-in offline caching with graceful `localStorage` backup.
+   - Dedicated `firebase-config.js` configuration module.
    - **Export Data**: Download your entire project state as a JSON backup anytime.
-   - **Reset Demo**: Instantly reload rich sample project data.
+   - **Clear All**: Reset or empty workspace anytime with confirmation.
 
 ---
 
 ## 💻 Getting Started / Running Locally
 
-Since this app is built with pure **HTML5**, **Vanilla CSS**, and modern **JavaScript**, no complex build toolchains or dependencies are required.
+Since this app is built with pure **HTML5**, **Vanilla CSS**, and standard modern **ES Modules**, no complex build toolchains, Webpack, or bundlers are required.
 
 ### Quick Start with Python
 ```bash
@@ -89,7 +91,6 @@ Then open your browser to [http://localhost:8080](http://localhost:8080).
 ```bash
 npx -y serve . -p 8080
 ```
-Or simply double-click and open `index.html` directly in any modern browser (Chrome, Safari, Firefox, Edge).
 
 ---
 
@@ -97,8 +98,9 @@ Or simply double-click and open `index.html` directly in any modern browser (Chr
 
 ```
 notes-app/
-├── index.html        # Semantic HTML5 layout, accessible dialog modals, and dashboard
-├── styles.css        # Pastel green, ochre, and dark green design system & micro-animations
-├── app.js            # Dual-profile state logic, checklists, comments, and sync
-└── README.md         # Documentation, design palette breakdown, and usage instructions
+├── index.html          # Semantic HTML5 layout, profile switcher, and dashboard
+├── styles.css          # Pastel green, ochre, and dark green design system & micro-animations
+├── app.js              # Real-time Firestore sync, author attribution, comments & checklists
+├── firebase-config.js  # Firebase project configuration credentials
+└── README.md           # Documentation, design palette breakdown, and usage instructions
 ```

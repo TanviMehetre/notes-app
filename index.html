@@ -121,7 +121,8 @@
         <div class="progress-meta">
           <span id="taskStatsCounter">0 of 0 tasks completed across all notes</span>
           <span class="sync-status" id="liveSyncStatus">
-            <span class="sync-dot"></span> Live Saved &amp; Synced
+            <span class="sync-dot sync-active" id="syncStatusDot"></span>
+            <span id="syncStatusText">Connecting to Cloud Firestore...</span>
           </span>
         </div>
       </div>
@@ -370,6 +371,6 @@
     <p>Project Collaboration Hub • Crafted with pastel sage &amp; ochre for <strong>Tanvi</strong> &amp; <strong>Saie</strong></p>
   </footer>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

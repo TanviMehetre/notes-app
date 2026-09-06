@@ -589,10 +589,25 @@ a {
 }
 
 .sync-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: #2cb67d;
+  transition: background-color var(--transition-fast);
+}
+
+.sync-dot.sync-active {
+  background: #2cb67d;
+  box-shadow: 0 0 0 2px rgba(44, 182, 125, 0.25);
+}
+
+.sync-dot.sync-warning {
+  background: #e09f2b;
+  box-shadow: 0 0 0 2px rgba(224, 159, 43, 0.25);
+}
+
+.sync-dot.sync-offline {
+  background: #889a8f;
 }
 
 /* Quick Metrics Cards */
