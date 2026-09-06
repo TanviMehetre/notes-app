@@ -4,7 +4,7 @@
  * Integrated with Google Cloud Firestore for Real-Time Cross-Device Sync
  */
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
+import { initializeApp, getApps, deleteApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
 import {
   getFirestore,
   collection,
@@ -19,13 +19,13 @@ import {
   getDocs,
   writeBatch
 } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js";
-import { firebaseConfig } from "./firebase-config.js";
 
 // Constants & LocalStorage Keys (Local Cache & Offline Backup)
 const STORAGE_KEY_NOTES = 'tanvi_saie_notes_v2';
 const STORAGE_KEY_ACTIVITY = 'tanvi_saie_activity_v2';
 const STORAGE_KEY_PROJECT = 'tanvi_saie_project_info_v2';
 const STORAGE_KEY_ACTIVE_USER = 'tanvi_saie_active_user';
+const STORAGE_KEY_FIREBASE_CONFIG = 'tanvi_saie_custom_firebase_config';
 
 // Collaborator Profiles
 const COLLABORATORS = {
@@ -47,18 +47,13 @@ const COLLABORATORS = {
   }
 };
 
-// Initialize Firebase App & Cloud Firestore
+// Cloud Firestore State
 let app = null;
 let db = null;
 let isFirestoreLive = false;
-
-try {
-  app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
-  console.log("Firebase App & Firestore initialized with project:", firebaseConfig.projectId);
-} catch (err) {
-  console.error("Firebase initialization failed:", err);
-}
+let activeFirebaseConfig = null;
+let firestoreUnsubscribers = [];
+let firestoreConnectionTimeout = null;
 
 // Broadcast Channel for live cross-tab sync as secondary backup
 let syncChannel = null;
@@ -170,6 +165,16 @@ const toastContainer = document.getElementById('toastContainer');
 const syncStatusDot = document.getElementById('syncStatusDot');
 const syncStatusText = document.getElementById('syncStatusText');
 
+// Cloud Firestore Config Modal Elements
+const firebaseConfigModal = document.getElementById('firebaseConfigModal');
+const openCloudConfigBtn = document.getElementById('openCloudConfigBtn');
+const liveSyncStatus = document.getElementById('liveSyncStatus');
+const closeCloudModalBtn = document.getElementById('closeCloudModalBtn');
+const cancelCloudModalBtn = document.getElementById('cancelCloudModalBtn');
+const resetCloudConfigBtn = document.getElementById('resetCloudConfigBtn');
+const firebaseConfigForm = document.getElementById('firebaseConfigForm');
+const firebaseConfigInput = document.getElementById('firebaseConfigInput');
+
 // ==========================================================================
 // Sync Status Helper
 // ==========================================================================
@@ -254,27 +259,150 @@ function saveProjectInfoToLocalStorage() {
 }
 
 // ==========================================================================
+// Cloud Firestore Configuration Parser & Manager
+// ==========================================================================
+
+/**
+ * Safely parses a Firebase config snippet from either:
+ * - JSON string
+ * - JS object literal / variable declaration (copied directly from Firebase console)
+ */
+function parseFirebaseConfig(rawInput) {
+  if (!rawInput || typeof rawInput !== 'string') return null;
+  const trimmed = rawInput.trim();
+
+  // 1. Try standard JSON.parse
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object' && parsed.apiKey && parsed.projectId) {
+      return parsed;
+    }
+  } catch (e) {
+    // Continue to regex parser
+  }
+
+  // 2. Extract standard Firebase config keys using regex
+  const keys = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId', 'measurementId'];
+  const extracted = {};
+
+  for (const key of keys) {
+    const regex = new RegExp(`["']?${key}["']?\\s*:\\s*["'\`]([^"'\`\\r\\n]+)["'\`]`, 'i');
+    const match = trimmed.match(regex);
+    if (match && match[1]) {
+      extracted[key] = match[1].trim();
+    }
+  }
+
+  if (extracted.apiKey && extracted.projectId && extracted.projectId !== 'YOUR_PROJECT_ID') {
+    return extracted;
+  }
+
+  return null;
+}
+
+/**
+ * Resolves Firebase config:
+ * 1. Checks localStorage for user-saved credentials (Option 2)
+ * 2. Attempts dynamic import of local firebase-config.js (for local development)
+ */
+async function resolveFirebaseConfig() {
+  // 1. Check user-configured credentials in localStorage
+  const saved = localStorage.getItem(STORAGE_KEY_FIREBASE_CONFIG);
+  if (saved) {
+    const parsed = parseFirebaseConfig(saved);
+    if (parsed) {
+      return { config: parsed, source: 'localStorage' };
+    }
+  }
+
+  // 2. Try dynamic import from local firebase-config.js (if file exists locally)
+  try {
+    const localModule = await import('./firebase-config.js');
+    if (localModule && localModule.firebaseConfig && localModule.firebaseConfig.apiKey && localModule.firebaseConfig.projectId !== 'YOUR_PROJECT_ID') {
+      return { config: localModule.firebaseConfig, source: 'file' };
+    }
+  } catch (e) {
+    // Expected on GitHub Pages where firebase-config.js is excluded from Git
+    console.info("No local firebase-config.js file found (expected on GitHub Pages).");
+  }
+
+  return { config: null, source: 'none' };
+}
+
+function clearFirestoreListeners() {
+  if (firestoreConnectionTimeout) {
+    clearTimeout(firestoreConnectionTimeout);
+    firestoreConnectionTimeout = null;
+  }
+  while (firestoreUnsubscribers.length > 0) {
+    const unsub = firestoreUnsubscribers.pop();
+    if (typeof unsub === 'function') {
+      try {
+        unsub();
+      } catch (e) {
+        console.warn('Error unsubscribing Firestore listener:', e);
+      }
+    }
+  }
+  isFirestoreLive = false;
+}
+
+async function connectFirebase(config) {
+  clearFirestoreListeners();
+
+  if (!config || !config.apiKey || !config.projectId) {
+    setSyncStatus('offline', 'Offline Mode • Click Cloud Sync');
+    return false;
+  }
+
+  try {
+    setSyncStatus('warning', 'Connecting to Cloud Firestore...');
+
+    // Clean up existing apps to avoid duplicate app errors
+    const existingApps = getApps();
+    if (existingApps.length > 0) {
+      await Promise.all(existingApps.map(a => deleteApp(a)));
+    }
+
+    app = initializeApp(config);
+    db = getFirestore(app);
+    activeFirebaseConfig = config;
+
+    setupFirestoreListeners();
+    return true;
+  } catch (err) {
+    console.error('Firebase initialization failed:', err);
+    setSyncStatus('offline', 'Connection Error • Click Cloud Sync');
+    showToast('Failed to connect to Firebase: ' + (err.message || err), 'warning', 6000);
+    return false;
+  }
+}
+
+// ==========================================================================
 // Cloud Firestore Real-Time Subscriptions
 // ==========================================================================
 function setupFirestoreListeners() {
   if (!db) {
-    setSyncStatus('offline', 'Offline Mode (Local Storage)');
+    setSyncStatus('offline', 'Offline Mode • Click Cloud Sync');
     return;
   }
 
   setSyncStatus('warning', 'Connecting to Firestore...');
 
-  const connectionTimer = setTimeout(() => {
+  firestoreConnectionTimeout = setTimeout(() => {
     if (!isFirestoreLive) {
-      setSyncStatus('warning', 'Awaiting Database in Console (Create in Test Mode)');
+      setSyncStatus('warning', 'Awaiting Firestore in Console (Test Mode)');
     }
   }, 3500);
 
   // 1. Real-time Notes Collection Listener
   try {
     const notesColRef = collection(db, "notes");
-    onSnapshot(notesColRef, (snapshot) => {
-      clearTimeout(connectionTimer);
+    const unsubNotes = onSnapshot(notesColRef, (snapshot) => {
+      if (firestoreConnectionTimeout) {
+        clearTimeout(firestoreConnectionTimeout);
+        firestoreConnectionTimeout = null;
+      }
       const remoteNotes = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
@@ -309,11 +437,12 @@ function setupFirestoreListeners() {
         setSyncStatus('offline', 'Local Storage (Offline)');
       }
     });
+    firestoreUnsubscribers.push(unsubNotes);
 
     // 2. Real-time Activities Collection Listener
     const activitiesColRef = collection(db, "activities");
     const activitiesQuery = query(activitiesColRef, orderBy("time", "desc"));
-    onSnapshot(activitiesQuery, (snapshot) => {
+    const unsubActivities = onSnapshot(activitiesQuery, (snapshot) => {
       const remoteActs = [];
       snapshot.forEach((docSnap) => {
         remoteActs.push({
@@ -328,10 +457,11 @@ function setupFirestoreListeners() {
     }, (error) => {
       console.warn("Firestore activities sync notification:", error);
     });
+    firestoreUnsubscribers.push(unsubActivities);
 
     // 3. Real-time Project Info Document Listener
     const projectDocRef = doc(db, "projects", "main");
-    onSnapshot(projectDocRef, (docSnap) => {
+    const unsubProject = onSnapshot(projectDocRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         projectInfo = {
@@ -345,6 +475,7 @@ function setupFirestoreListeners() {
     }, (error) => {
       console.warn("Firestore project sync notification:", error);
     });
+    firestoreUnsubscribers.push(unsubProject);
   } catch (err) {
     console.error("Failed to establish Firestore listeners:", err);
     setSyncStatus('offline', 'Local Storage Mode');
@@ -1363,7 +1494,82 @@ function setupEventListeners() {
     }
   });
 
-  [noteModal, deleteConfirmModal, activityDrawer].forEach(dialog => {
+  // Cloud Sync Modal Listeners
+  function openCloudModal() {
+    const saved = localStorage.getItem(STORAGE_KEY_FIREBASE_CONFIG);
+    if (saved) {
+      try {
+        firebaseConfigInput.value = JSON.stringify(JSON.parse(saved), null, 2);
+      } catch (e) {
+        firebaseConfigInput.value = saved;
+      }
+    } else if (activeFirebaseConfig) {
+      firebaseConfigInput.value = JSON.stringify(activeFirebaseConfig, null, 2);
+    } else {
+      firebaseConfigInput.value = '';
+    }
+    firebaseConfigModal.showModal();
+    firebaseConfigInput.focus();
+  }
+
+  if (openCloudConfigBtn) {
+    openCloudConfigBtn.addEventListener('click', openCloudModal);
+  }
+  if (liveSyncStatus) {
+    liveSyncStatus.addEventListener('click', openCloudModal);
+  }
+  if (closeCloudModalBtn) {
+    closeCloudModalBtn.addEventListener('click', () => firebaseConfigModal.close());
+  }
+  if (cancelCloudModalBtn) {
+    cancelCloudModalBtn.addEventListener('click', () => firebaseConfigModal.close());
+  }
+  if (resetCloudConfigBtn) {
+    resetCloudConfigBtn.addEventListener('click', async () => {
+      localStorage.removeItem(STORAGE_KEY_FIREBASE_CONFIG);
+      firebaseConfigInput.value = '';
+      clearFirestoreListeners();
+      if (app) {
+        try {
+          await deleteApp(app);
+        } catch (e) {
+          console.warn('Error deleting Firebase app instance:', e);
+        }
+      }
+      app = null;
+      db = null;
+      activeFirebaseConfig = null;
+      isFirestoreLive = false;
+      setSyncStatus('offline', 'Offline Mode • Click Cloud Sync');
+      firebaseConfigModal.close();
+      showToast('Cloud configuration cleared. Local offline storage active.', 'info');
+    });
+  }
+
+  if (firebaseConfigForm) {
+    firebaseConfigForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const rawText = firebaseConfigInput.value;
+      const parsed = parseFirebaseConfig(rawText);
+      if (!parsed) {
+        showToast('Please paste a valid Firebase config snippet containing apiKey and projectId.', 'warning', 5000);
+        return;
+      }
+      try {
+        localStorage.setItem(STORAGE_KEY_FIREBASE_CONFIG, JSON.stringify(parsed));
+        setSyncStatus('warning', 'Connecting to Cloud Firestore...');
+        const connected = await connectFirebase(parsed);
+        if (connected) {
+          firebaseConfigModal.close();
+          showToast(`Connected to Cloud Firestore (${parsed.projectId})! Live sync active.`, 'success', 4000);
+        }
+      } catch (err) {
+        showToast('Error saving configuration: ' + err.message, 'warning');
+      }
+    });
+  }
+
+  [noteModal, deleteConfirmModal, activityDrawer, firebaseConfigModal].filter(Boolean).forEach(dialog => {
     dialog.addEventListener('click', (e) => {
       const rect = dialog.getBoundingClientRect();
       const isInDialog = (rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
@@ -1399,11 +1605,18 @@ function renderApp() {
 }
 
 // Boot
-function init() {
+async function init() {
   loadStateFromLocalStorage();
   setupEventListeners();
   renderApp();
-  setupFirestoreListeners();
+
+  const { config, source } = await resolveFirebaseConfig();
+  if (config) {
+    console.log(`Initializing Firebase from ${source} (${config.projectId})...`);
+    await connectFirebase(config);
+  } else {
+    setSyncStatus('offline', 'Offline Mode • Click Cloud Sync');
+  }
 }
 
 if (document.readyState === 'loading') {

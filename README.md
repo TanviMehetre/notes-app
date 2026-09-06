@@ -66,13 +66,33 @@ In the top header, click between **Tanvi** and **Saie** with one click to switch
 6. **Team Activity Feed**:
    - An interactive chronological feed detailing all actions taken by Tanvi and Saie (notes created, tasks completed, comments posted, notes edited).
 
-7. **Real-Time Cloud Firestore Sync & Offline Persistence**:
+7. **Real-Time Cloud Firestore Sync & In-App Cloud Settings**:
    - Integrated with **Google Cloud Firestore** using the modern Modular Web SDK for instant cross-device updates.
    - Any note, comment, or checklist deliverable created by Tanvi or Saie updates live across the internet on both machines!
-   - Built-in offline caching with graceful `localStorage` backup.
-   - Dedicated `firebase-config.js` configuration module.
+   - **In-App Cloud Sync Modal**: When hosted publicly on GitHub Pages, click **Cloud Sync** in the header to paste your Firebase config snippet once. It is saved in your browser's private `localStorage` and never committed or exposed on GitHub!
+   - **Local Auto-Detection**: When developing locally, `app.js` automatically imports `firebase-config.js` if present.
+   - Built-in offline caching with graceful local backup.
    - **Export Data**: Download your entire project state as a JSON backup anytime.
    - **Clear All**: Reset or empty workspace anytime with confirmation.
+
+---
+
+## 🌐 Live GitHub Pages & Firebase Setup
+
+When viewing the live app on **GitHub Pages**:
+1. Click the **Cloud Sync** button in the header (or the sync indicator next to the progress bar).
+2. Paste your **Firebase Web Config** snippet:
+   ```javascript
+   {
+     apiKey: "...",
+     authDomain: "...",
+     projectId: "notes-app-4bcd5",
+     storageBucket: "...",
+     messagingSenderId: "...",
+     appId: "..."
+   }
+   ```
+3. Click **Connect & Sync**. The status dot will turn green (`🟢 Cloud Firestore Live`) and automatically sync live notes between Tanvi and Saie!
 
 ---
 
@@ -98,10 +118,11 @@ npx -y serve . -p 8080
 
 ```
 notes-app/
-├── index.html          # Semantic HTML5 layout, profile switcher, and dashboard
-├── styles.css          # Pastel green, ochre, and dark green design system & micro-animations
-├── app.js              # Real-time Firestore sync, author attribution, comments & checklists
-├── firebase-config.js  # Firebase project configuration credentials
-├── firestore.rules     # Cloud Firestore security rules with schema validation
-└── README.md           # Documentation, design palette breakdown, and usage instructions
+├── index.html                 # Semantic HTML5 layout, profile switcher, and dashboard
+├── styles.css                 # Pastel green, ochre, and dark green design system & micro-animations
+├── app.js                     # Real-time Firestore sync, in-app config modal, author attribution
+├── firebase-config.example.js # Template configuration for new contributors
+├── firestore.rules            # Cloud Firestore security rules with schema validation
+├── .gitignore                 # Excludes sensitive firebase-config.js from repository
+└── README.md                  # Documentation, design palette breakdown, and usage instructions
 ```
