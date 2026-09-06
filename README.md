@@ -102,5 +102,6 @@ notes-app/
 ├── styles.css          # Pastel green, ochre, and dark green design system & micro-animations
 ├── app.js              # Real-time Firestore sync, author attribution, comments & checklists
 ├── firebase-config.js  # Firebase project configuration credentials
+├── firestore.rules     # Cloud Firestore security rules with schema validation
 └── README.md           # Documentation, design palette breakdown, and usage instructions
 ```
